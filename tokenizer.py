@@ -12,6 +12,8 @@ class Tokenizer:
         self.w2i= {"<PAD>":0,"<UNK>":1} #word 2 index
      
         self.voc = []
+        self.make_voc()
+        print(self.w2i.keys())
     def preprocess(self,seq:list[str])->list[list[str]]: 
         return_list = []
         for s in seq:
@@ -32,6 +34,7 @@ class Tokenizer:
         top_n_words = count.most_common(self.voc_size)
         i =2
         for w,f in top_n_words :
+         
             self.w2i[w] = i
           
             i+=1
