@@ -53,8 +53,13 @@ class Trainer:
         labels = torch.tensor(labels, dtype=torch.float32).reshape(-1, 1)
         return {"texts": tokenized_vec, "masks": mask, "labels": labels}
 
-    def train(self, early_stop=6):
-        if not os.path.exists(self.save_path): os.makedirs(self.save_path)
+    def train(self, early_stop=6, checkpoint_name="best_model"):
+        if not os.path.exists(self.save_path): 
+            os.makedirs(self.save_path)
+        
+        
+        if not checkpoint_name.endswith(".pth"):
+            checkpoint_name += ".pth"
         
         for epoch in range(self.start_epoch, self.epochs):
             self.model.train()
@@ -79,7 +84,10 @@ class Trainer:
             if v_loss < self.best_loss:
                 self.best_loss = v_loss
                 self.early_stop_count = 0
-                self.save_checkpoint(epoch, v_loss, os.path.join(self.save_path, "best_model.pth"))
+              
+                save_full_path = os.path.join(self.save_path, checkpoint_name)
+                self.save_checkpoint(epoch, v_loss, save_full_path)
+                print(f"Best model saved at: {save_full_path}")
             else:
                 self.early_stop_count += 1
                 if self.early_stop_count >= early_stop:
@@ -101,7 +109,7 @@ class Trainer:
         avg_val = val_loss / len(self.validation_dataloader)
         acc = 100 * correct / total
         self.history['train_loss'].append(avg_train); self.history['val_loss'].append(avg_val); self.history['val_acc'].append(acc)
-        print(f"\nEpoch {epoch+1} Summary: Train Loss: {avg_train:.4f} | Val Loss: {avg_val:.4f} | Val Acc: {acc:.2f}%")
+        print(f"\nEpoch {epoch+1} Summary: Train Loss: {avg_train:.7f} | Val Loss: {avg_val:.7f} | Val Acc: {acc:.7f}%")
         return avg_val
 
     def test(self):
