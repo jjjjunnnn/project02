@@ -3,16 +3,18 @@ from torch.utils.data import Dataset,DataLoader
 from tokenizer import Tokenizer
 from datasets import load_from_disk
 class IMDBDataset(Dataset):
-    def __init__(self,path ,train_ratio = 0.2,mode='train'):
+    def __init__(self,path ,val_ratio = 0.2,mode='train'):
         super().__init__()
         dataset = load_from_disk(path)
-        select_range = int(len(dataset['train'])*train_ratio)
-       
+        val_step = int(1/val_ratio)
+        val_indices =list(range(0,len(dataset['train']),val_step))
         if(mode == "train"):
-            
-            selected_dataset = dataset['train'].select(range(select_range))
+            all_indices = set (range(len(dataset['train'])))
+            indices = sorted(list(all_indices - set(val_indices)))
+            selected_dataset = dataset['train'].select(indices)
         elif (mode == "validation"):
-            selected_dataset = dataset['train'].select(range(select_range,len(dataset['train'])))
+            
+            selected_dataset = dataset['train'].select(val_indices)
         else:
             selected_dataset = dataset['test']
        

@@ -29,12 +29,12 @@ class Trainer:
         self.tokenizer = Tokenizer(dataset_path)
         self.model_name = model
         if self.model_name == "LSTM":
-            self.model = LSTM(d_model=128, voc_size=20000, hidden_size=256, num_layer=2)
+            self.model = LSTM(d_model=256, voc_size=20000, hidden_size=256, num_layer=2)
         elif self.model_name == "VT":
-            self.model = Transformer(d_model=128, max_length=256, voc_size=20000, N=6, multi_num=8)
+            self.model = Transformer(d_model=256, max_length=256, voc_size=20000, N=4, multi_num=8)
             
         self.model.to(device)
-        self.loss = torch.nn.BCELoss()
+        self.loss = torch.nn.BCEWithLogitsLoss() 
         self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=1e-4, weight_decay=0.01)
 
         if load_path:
@@ -50,41 +50,50 @@ class Trainer:
         texts = [t[0] for t in batch]
         labels = [t[1] for t in batch]
         tokenized_vec, mask = self.tokenizer(texts)
+      
         labels = torch.tensor(labels, dtype=torch.float32).reshape(-1, 1)
         return {"texts": tokenized_vec, "masks": mask, "labels": labels}
 
-    def train(self, early_stop=6):
-        if not os.path.exists(self.save_path): os.makedirs(self.save_path)
-        
-        for epoch in range(self.start_epoch, self.epochs):
-            self.model.train()
-            train_loss = 0
-            pbar = tqdm(self.train_dataloader, desc=f"Epoch {epoch+1}/{self.epochs} [Train]")
-            for batch in pbar:
-                self.optimizer.zero_grad() 
-                input = batch['texts'].to(self.device)
-                mask = batch['masks'].to(self.device)
-                label = batch['labels'].to(self.device)
-                
-                output = self.model(input, mask)
-                loss = self.loss(output, label)
-                loss.backward()
-                self.optimizer.step()
-                
-                train_loss += loss.item()
-                pbar.set_postfix(loss=loss.item())
+    def train(self, save_path_name="best_model.pth", early_stop=6):
+            """
+            Args:
+                save_path_name (str): 저장할 체크포인트 파일의 이름 (확장자 포함)
+                early_stop (int): 조기 종료를 위한 에폭 수
+            """
+            if not os.path.exists(self.save_path): 
+                os.makedirs(self.save_path)
             
-            v_loss = self.validate(epoch, train_loss)
-            
-            if v_loss < self.best_loss:
-                self.best_loss = v_loss
-                self.early_stop_count = 0
-                self.save_checkpoint(epoch, v_loss, os.path.join(self.save_path, "best_model.pth"))
-            else:
-                self.early_stop_count += 1
-                if self.early_stop_count >= early_stop:
-                    print(f"Early Stopping Triggered at Epoch {epoch+1}")
-                    break
+            for epoch in range(self.start_epoch, self.epochs):
+                self.model.train()
+                train_loss = 0
+                pbar = tqdm(self.train_dataloader, desc=f"Epoch {epoch+1}/{self.epochs} [Train]")
+                for batch in pbar:
+                    self.optimizer.zero_grad() 
+                    input = batch['texts'].to(self.device)
+                    mask = batch['masks'].to(self.device)
+                    label = batch['labels'].to(self.device)
+                    
+                    output = self.model(input, mask)
+                    loss = self.loss(output, label)
+                    loss.backward()
+                    self.optimizer.step()
+                    
+                    train_loss += loss.item()
+                    pbar.set_postfix(loss=loss.item())
+                
+                v_loss = self.validate(epoch, train_loss)
+                
+                # 지정한 save_path_name으로 체크포인트 저장
+                if v_loss < self.best_loss:
+                    self.best_loss = v_loss
+                    self.early_stop_count = 0
+                    # "best_model.pth" 대신 인자로 받은 save_path_name 사용
+                    self.save_checkpoint(epoch, v_loss, os.path.join(self.save_path, save_path_name))
+                else:
+                    self.early_stop_count += 1
+                    if self.early_stop_count >= early_stop:
+                        print(f"Early Stopping Triggered at Epoch {epoch+1}")
+                        break
 
     def validate(self, epoch, train_loss):
         self.model.eval()
@@ -94,13 +103,17 @@ class Trainer:
                 input, mask, label = batch['texts'].to(self.device), batch['masks'].to(self.device), batch['labels'].to(self.device)
                 output = self.model(input, mask)
                 val_loss += self.loss(output, label).item()
-                correct += ((output > 0.5).float() == label).sum().item()
+                
+                # BCEWithLogitsLoss를 사용하므로 0.5가 아닌 0.0(로짓) 기준으로 판단
+                correct += ((output > 0.0).float() == label).sum().item()
                 total += label.size(0)
         
         avg_train = train_loss / len(self.train_dataloader)
         avg_val = val_loss / len(self.validation_dataloader)
         acc = 100 * correct / total
-        self.history['train_loss'].append(avg_train); self.history['val_loss'].append(avg_val); self.history['val_acc'].append(acc)
+        self.history['train_loss'].append(avg_train)
+        self.history['val_loss'].append(avg_val)
+        self.history['val_acc'].append(acc)
         print(f"\nEpoch {epoch+1} Summary: Train Loss: {avg_train:.4f} | Val Loss: {avg_val:.4f} | Val Acc: {acc:.2f}%")
         return avg_val
 

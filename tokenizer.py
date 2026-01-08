@@ -13,7 +13,7 @@ class Tokenizer:
      
         self.voc = []
         self.make_voc()
-        print(self.w2i.keys())
+        print(len(self.w2i.keys()))
     def preprocess(self,seq:list[str])->list[list[str]]: 
         return_list = []
         for s in seq:
@@ -31,7 +31,7 @@ class Tokenizer:
         for i in range(len(train_text)):
             flaten.extend(train_text[i])
         count = Counter(flaten)
-        top_n_words = count.most_common(self.voc_size)
+        top_n_words = count.most_common(self.voc_size-2)
         i =2
         for w,f in top_n_words :
          

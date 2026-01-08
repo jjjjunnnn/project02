@@ -14,7 +14,7 @@ class FFN(nn.Module):
         return x
 
 class MultiHeadAttention(nn.Module):
-    def __init__(self,d_model,d_k,d_v,head_num):
+    def __init__(self,d_model,d_k,d_v,head_num,dropout = 0.1):
         super().__init__()
         self.d_model = d_model
         self.d_k = d_k
@@ -24,7 +24,7 @@ class MultiHeadAttention(nn.Module):
         self.v_linear = nn.Linear(d_model,d_v*head_num,bias = False)
         self.last_linear = nn.Linear(head_num*d_v,d_model,bias = False)
         self.softmax = nn.Softmax(dim= -1)
-    
+        self.dropout = nn.Dropout(dropout)
     def split_head_dim(self,x):
         x = x.reshape(x.size(0),x.size(1),self.head_num,-1)
         x = x.transpose(1,2)
@@ -47,6 +47,7 @@ class MultiHeadAttention(nn.Module):
         if mask is not None:
             qk = qk.masked_fill(mask == 0,-1e9)
         heads = self.softmax(qk)
+        heads = self.dropout(heads)
         heads = torch.matmul(heads,v)
         concated = heads.permute(0,2,1,3).contiguous()
         concated = concated.reshape(concated.size(0),concated.size(1),-1)
@@ -54,12 +55,12 @@ class MultiHeadAttention(nn.Module):
         return concated
 
 class Encoder(nn.Module):
-    def __init__(self,d_model,multi_head_num):
+    def __init__(self,d_model,multi_head_num,dropout=0.1):
         super().__init__()
         self.d_model = d_model
         self.ffn = FFN(d_model1=d_model,d_model2=2*d_model)
-        self.multi_head_att = MultiHeadAttention(d_model,d_model//multi_head_num,d_model//multi_head_num,multi_head_num)
-
+        self.multi_head_att = MultiHeadAttention(d_model,d_model//multi_head_num,d_model//multi_head_num,multi_head_num,dropout=dropout)
+        self.dropout = nn.Dropout(dropout)
     def layer_norm(self,x):
         #x:(batch,seq_len,d_model)
         mean = x.mean(dim=-1,keepdim=True)
@@ -67,26 +68,28 @@ class Encoder(nn.Module):
         return (x-mean)/(std + 1e-6)
     def forward(self,x,mask):
         att = self.multi_head_att(x,mask)
-        att = att + x
+        att = att + self.dropout(x)
         att = self.layer_norm(att)
         ffn = self.ffn(att)
-        ffn = ffn + att
+        ffn = ffn + self.dropout(att)
         ffn = self.layer_norm(ffn)
         return ffn
 
 class Transformer(nn.Module):
-    def __init__(self,d_model,max_length = 256,voc_size = 20000,N=6,multi_num=8):
+    def __init__(self,d_model,dropout = 0.2,max_length = 256,voc_size = 20000,N=6,multi_num=8):
         super().__init__()
+        print("model:VT")
         self.d_model = d_model
         self.max_length = max_length
         self.layer_num = N
         self.multi_head_num = multi_num
         self.embedding = nn.Embedding(voc_size ,d_model)
-        self.layers = nn.ModuleList([Encoder(d_model,multi_num) for _ in range(N)])
+        self.layers = nn.ModuleList([Encoder(d_model,multi_num,dropout=dropout) for _ in range(N)])
         self.register_buffer('pe',self.pos_encoding())
         self.last_linear = nn.Linear(d_model,1)
         self.last_linear2 = nn.Linear(max_length,1)
         self.sig = nn.Sigmoid()
+        self.dropout = nn.Dropout(dropout)
     def pos_encoding(self):
         """
         Return: pe : (1,seq_len=256,d_model)
@@ -104,10 +107,11 @@ class Transformer(nn.Module):
         x = self.embedding(x)
         # x: (batch , seq_len,d_model)
         x = x + self.pe
+        x = self.dropout(x)
         for layer in self.layers:
             x = layer(x,mask)
         x = self.last_linear(x) #(batch,seq_len,1)
         x = x.squeeze(dim=2)
         x = self.last_linear2(x)
-        x = self.sig(x)
+      
         return x
