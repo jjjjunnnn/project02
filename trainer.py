@@ -5,7 +5,7 @@ from transformer import Transformer
 import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-
+from customed_transformer import CustomTransformer
 import os
 
 class Trainer:
@@ -17,7 +17,7 @@ class Trainer:
         self.best_loss = float('inf')
         self.history = {'train_loss': [], 'val_loss': [], 'val_acc': []}
         self.early_stop_count = 0
-
+        
         self.train_dataset = IMDBDataset(dataset_path, mode='train')
         self.validation_dataset = IMDBDataset(dataset_path, mode='validation')
         self.test_dataset = IMDBDataset(dataset_path, mode='test')
@@ -29,14 +29,20 @@ class Trainer:
         self.tokenizer = Tokenizer(dataset_path)
         self.model_name = model
         if self.model_name == "LSTM":
-            self.model = LSTM(d_model=256, voc_size=20000, hidden_size=256, num_layer=2)
+            self.model = LSTM(d_model=128, voc_size=20000, hidden_size=128, num_layer=2)
         elif self.model_name == "VT":
-            self.model = Transformer(d_model=256, max_length=256, voc_size=20000, N=4, multi_num=8)
-            
+            self.model = Transformer(d_model=128, max_length=256, voc_size=20000, N=4, multi_num=8)
+        elif self.model_name == "CT":
+            self.model = CustomTransformer(d_model=128, max_length=256, voc_size=20000, N=4, multi_num=8) 
         self.model.to(device)
+        self.count_parameters(self.model)
         self.loss = torch.nn.BCEWithLogitsLoss() 
         self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=1e-4, weight_decay=0.01)
-
+        self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            self.optimizer,
+            T_max=self.epochs,
+            eta_min=1e-6
+        )
         if load_path:
             checkpoint = torch.load(load_path, map_location=device)
             self.model.load_state_dict(checkpoint['model_state_dict'])
@@ -94,6 +100,8 @@ class Trainer:
                     if self.early_stop_count >= early_stop:
                         print(f"Early Stopping Triggered at Epoch {epoch+1}")
                         break
+                if(self.model_name == "CT"):
+                    self.scheduler.step()
 
     def validate(self, epoch, train_loss):
         self.model.eval()
@@ -125,7 +133,7 @@ class Trainer:
                 input, mask, label = batch['texts'].to(self.device), batch['masks'].to(self.device), batch['labels'].to(self.device)
                 output = self.model(input, mask)
                 test_loss += self.loss(output, label).item()
-                correct += ((output > 0.5).float() == label).sum().item()
+                correct += ((output > 0.0).float() == label).sum().item()
                 total += label.size(0)
         print(f"\nTest Result: Loss: {test_loss/len(self.test_dataloader):.4f} | Acc: {100*correct/total:.2f}%")
 
@@ -137,3 +145,13 @@ class Trainer:
             'loss': loss,
             'history': self.history
         }, path)
+    def count_parameters(self,model):
+        # 학습 가능한 파라미터만 계산 (requires_grad=True)
+        trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        # 전체 파라미터 계산
+        total_params = sum(p.numel() for p in model.parameters())
+        print(f"model:{self.model_name}")
+        print(f"Total Parameters: {total_params:,}")
+        print(f"Trainable Parameters: {trainable_params:,}")
+        
+        return total_params
